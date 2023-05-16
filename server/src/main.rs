@@ -42,6 +42,7 @@ fn main() {
 }
 
 fn handle_client(mut stream: TcpStream) {
+// Receiving the Data from the Client, to be Stored on the Server
     // 1. Receive the data from the client
     let message = receive_message(&mut stream);
     println!("Received message: {}", message);
@@ -58,8 +59,8 @@ fn handle_client(mut stream: TcpStream) {
     let merkle_root = merkle_tree.root().ok_or("couldn't get the merkle root").unwrap();
 
     // X. Change the Data
-    new_leaf_values_vec.shuffle(&mut rand::thread_rng());
-    let leaves_changed_hashed = hash_leaves(&new_leaf_values_vec);
+    // new_leaf_values_vec.shuffle(&mut rand::thread_rng());
+    // let leaves_changed_hashed = hash_leaves(&new_leaf_values_vec);
 
     // 5. Send the Merkle Root to the client
     send_root(&mut stream, merkle_root);
@@ -74,7 +75,7 @@ fn handle_client(mut stream: TcpStream) {
     // let indices_to_prove = vec![3, 4];
     let first_index = indices_to_prove_converted[0];
     let second_index = indices_to_prove_converted[1];
-    let leaves_to_prove = leaves_changed_hashed.get(first_index..second_index+1).ok_or("can't get leaves to prove").unwrap();
+    let leaves_to_prove = leaves.get(first_index..second_index+1).ok_or("can't get leaves to prove").unwrap();
     
     let merkle_proof = merkle_tree.proof(&indices_to_prove_converted);
     
@@ -85,13 +86,58 @@ fn handle_client(mut stream: TcpStream) {
     // 9. Send the Merkle Proof to the client
     send_proof(&mut stream, &merkle_proof);
 
-
     print_root(merkle_root);
     verify_merkle_proof(merkle_proof, merkle_root, indices_to_prove_converted, &leaves_to_prove, leaves.len());
 
+// Protocol to Change Specific Data
+    // 1. Receive request for proof for certain index
+    let change_at_index = receive_index(&mut stream);
+    println!("Received request for proof for index: {}", change_at_index);
+
+    // 2. Send the Merkle Proof to the client
+    let merkle_proof = merkle_tree.proof(&[change_at_index]);
+    send_proof(&mut stream, &merkle_proof);
+    let leaf_to_prove = leaves.get(change_at_index..change_at_index+1).ok_or("can't get leaf to prove").unwrap();
+    send_leaf_to_prove(&mut stream, &leaf_to_prove);
+    for leaf in leaf_to_prove {
+        println!("Leaf to change: {:?}", leaf);
+    }
+
+    // 3. Receive the new data
+    let new_data = receive_message(&mut stream);
+
+    // 4. Conduct the change
+    new_leaf_values_vec[change_at_index] = &new_data;
+
+    // 5. Re-compute the Merkle Tree
+    let leaves = hash_leaves(&new_leaf_values_vec);
+    print_leaves(leaves.as_slice());
+    let merkle_tree = compute_merkle_tree(&leaves);
+    let merkle_root = merkle_tree.root().ok_or("couldn't get the merkle root").unwrap();
+    print_root(merkle_root);
+
+    // 6. Send the new Merkle Root to the client
+    send_root(&mut stream, merkle_root);
+
 }
 
-// ==================== HELPER FUNCTIONS RECEIVIGN ====================
+// ==================== HELPER FUNCTIONS RECEIVING ====================
+
+fn receive_index(stream: &mut TcpStream) -> usize {
+    const HEADER_SIZE: usize = 8;
+    let mut header = [0 as u8; HEADER_SIZE];
+
+    match stream.read_exact(&mut header) {
+        Ok(_) => {
+            let index = usize::from_be_bytes(header);
+            return index as usize;
+        },
+        Err(e) => {
+            println!("Failed to receive data: {}", e);
+            return 0;
+        }
+    }
+}
 
 fn receive_message(stream: &mut TcpStream) -> String {
     const HEADER_SIZE: usize = 4;
@@ -199,6 +245,17 @@ fn send_leaves_to_prove(stream: &mut TcpStream, leaves_to_prove: &[[u8;32]]) {
 
     stream.write_all(&header_2).unwrap();
     stream.write_all(&item_ref_2).unwrap();
+}
+
+fn send_leaf_to_prove(stream: &mut TcpStream, leaf_to_prove: &[[u8;32]]) {
+    let leaf_to_prove = leaf_to_prove[0];
+    let message_len = leaf_to_prove.len() as u32;
+
+    let mut header = [0 as u8; 4];
+    header.copy_from_slice(&message_len.to_be_bytes());
+
+    stream.write_all(&header).unwrap();
+    stream.write_all(&leaf_to_prove).unwrap();
 }
 
 
