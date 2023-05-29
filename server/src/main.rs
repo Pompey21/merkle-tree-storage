@@ -53,10 +53,13 @@ fn handle_client(mut stream: TcpStream) {
 
     // 3. Hash Leaves
     let leaves = hash_leaves(&new_leaf_values_vec);
+    print_leaves(leaves.as_slice());
 
     // 4. Compute Merkle Tree
     let merkle_tree = compute_merkle_tree(&leaves);
     let merkle_root = merkle_tree.root().ok_or("couldn't get the merkle root").unwrap();
+    println!("Want to print the whole tree");
+    // println!("{}",&merkle_tree);
 
     // X. Change the Data
     // new_leaf_values_vec.shuffle(&mut rand::thread_rng());
@@ -111,7 +114,7 @@ fn handle_client(mut stream: TcpStream) {
 
     // 5. Re-compute the Merkle Tree
     let leaves = hash_leaves(&new_leaf_values_vec);
-    print_leaves(leaves.as_slice());
+    // print_leaves(leaves.as_slice());
     let merkle_tree = compute_merkle_tree(&leaves);
     let merkle_root = merkle_tree.root().ok_or("couldn't get the merkle root").unwrap();
     print_root(merkle_root);

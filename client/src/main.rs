@@ -1,12 +1,14 @@
-
-use std::{net::TcpStream, io::{Write, Read}};
+use std::{
+    io::{Read, Write},
+    net::TcpStream,
+};
 
 use rand::seq::SliceRandom;
-use std::f64;
 use rand::Rng;
-use serde::{Serialize, Deserialize};
-use rs_merkle::{Hasher, MerkleTree, MerkleProof};
-use sha2::{Sha256, Digest, digest::FixedOutput};
+use rs_merkle::{Hasher, MerkleProof, MerkleTree};
+use serde::{Deserialize, Serialize};
+use sha2::{digest::FixedOutput, Digest, Sha256};
+use std::f64;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, Hash, PartialEq)]
 pub struct Sha256Algorithm {}
@@ -22,9 +24,8 @@ impl Hasher for Sha256Algorithm {
     }
 }
 
-
 fn main() {
-    let message = "No More Segmentation Faults".to_string();
+    let message = "No More Segmentation Faults or I will die".to_string();
     let len_message = message.split(" ").count();
 
     // send the message to server
@@ -33,7 +34,7 @@ fn main() {
         Ok(mut stream) => {
             println!("Successfully connected to server in port 8080");
 
-// Sending the Data to be Stored to the Server
+            // Sending the Data to be Stored to the Server
             // send the message
             send_message(&mut stream, message);
 
@@ -54,11 +55,17 @@ fn main() {
             let merkle_proof = receive_proof(&mut stream);
 
             // verify proof
-            verify_merkle_proof(merkle_proof, merkle_root, chosen_indices_clone, &leaves_to_prove, len_message);
+            verify_merkle_proof(
+                merkle_proof,
+                merkle_root,
+                chosen_indices_clone,
+                &leaves_to_prove,
+                len_message,
+            );
 
-// Changing the Data on the Server
+            // Changing the Data on the Server
             // 1. Request the proof for the index I want to change
-            let change_at_index = 1;
+            let change_at_index = 6;
             send_index(&mut stream, change_at_index);
             // receive the proof
             let proof_for_change = receive_proof(&mut stream);
@@ -67,14 +74,20 @@ fn main() {
             println!("Leaf to change: {:?}", leaf_to_change);
 
             // 2. Check the proof -> store the hashes of the proofs
-            let verify_proof = verify_merkle_proof_single_leaf(&proof_for_change, &merkle_root, &change_at_index, &leaf_to_change, len_message);
-            
+            let verify_proof = verify_merkle_proof_single_leaf(
+                &proof_for_change,
+                &merkle_root,
+                &change_at_index,
+                &leaf_to_change,
+                len_message,
+            );
+
             if verify_proof {
                 println!("Proof verified");
             } else {
                 println!("Proof not verified");
                 println!("Aborting communication now...");
-                // drop(stream);
+                drop(&stream);
             }
             let hashes_to_store = proof_for_change.proof_hashes();
             print_leaves(&hashes_to_store);
@@ -89,6 +102,7 @@ fn main() {
 
             // 5. Compute my own new root
             let path = path_finder(len_message, change_at_index);
+            println!("Path: {:?}", path);
             let computed_root = compute_my_own_root(&new_data_clone, &hashes_to_store, path);
             print_root(computed_root);
 
@@ -99,7 +113,6 @@ fn main() {
             } else {
                 println!("Roots do not match");
             }
-
         }
         Err(e) => {
             println!("Failed to connect: {}", e);
@@ -159,7 +172,7 @@ fn send_change(stream: &mut TcpStream, change: String, index: &usize) {
 
 // ==================== HELPER FUNCTIONS RECEIVING ====================
 
-fn receive_root(stream: &mut TcpStream)  -> [u8; 32] {
+fn receive_root(stream: &mut TcpStream) -> [u8; 32] {
     let mut buffer = [0 as u8; 4];
     stream.read_exact(&mut buffer).unwrap();
     let size_of_root = u32::from_be_bytes(buffer);
@@ -211,7 +224,7 @@ fn receive_leaves_to_prove(stream: &mut TcpStream) -> [[u8; 32]; 2] {
     // Convert &[u8] to [u8; 32]
     let mut leaf_2: [u8; 32] = [0u8; 32];
     leaf_2.copy_from_slice(slice_2);
-    
+
     // array: join leaf and leaf_2 of the type [[u8; 32]; 2]
     let leaves_to_prove: [[u8; 32]; 2] = [leaf, leaf_2];
     leaves_to_prove
@@ -234,16 +247,16 @@ fn receive_leaf_to_prove(stream: &mut TcpStream) -> [u8; 32] {
 // ==================== HELPER FUNCTIONS MERKLE ====================
 
 #[allow(dead_code)]
-fn compute_merkle_tree(hashed_leaves: &Vec<[u8;32]>) -> MerkleTree<Sha256Algorithm> {
+fn compute_merkle_tree(hashed_leaves: &Vec<[u8; 32]>) -> MerkleTree<Sha256Algorithm> {
     let merkle_tree = MerkleTree::<Sha256Algorithm>::from_leaves(&hashed_leaves);
     merkle_tree
 }
 #[allow(dead_code)]
-fn hash_leaves(leaves: Vec<&str>) -> Vec<[u8;32]> {
+fn hash_leaves(leaves: Vec<&str>) -> Vec<[u8; 32]> {
     let leaves: Vec<[u8; 32]> = leaves
-    .iter()
-    .map(|x| Sha256Algorithm::hash(x.as_bytes()))
-    .collect();
+        .iter()
+        .map(|x| Sha256Algorithm::hash(x.as_bytes()))
+        .collect();
 
     leaves
 }
@@ -255,20 +268,36 @@ fn compute_leaves(message: &String) -> Vec<&str> {
     leaf_array
 }
 
-fn verify_merkle_proof(merkle_proof: MerkleProof<Sha256Algorithm>, merkle_root: [u8; 32], indices_to_prove: Vec<usize>, leaves_to_prove: &[<Sha256Algorithm as Hasher>::Hash], leaves_len: usize) {
+fn verify_merkle_proof(
+    merkle_proof: MerkleProof<Sha256Algorithm>,
+    merkle_root: [u8; 32],
+    indices_to_prove: Vec<usize>,
+    leaves_to_prove: &[<Sha256Algorithm as Hasher>::Hash],
+    leaves_len: usize,
+) {
     let result = merkle_proof.verify(merkle_root, &indices_to_prove, leaves_to_prove, leaves_len);
     println!("Merkle Proof Result: {}", result);
 }
 
-fn verify_merkle_proof_single_leaf(merkle_proof: &MerkleProof<Sha256Algorithm>, merkle_root: &[u8; 32],
-    index_to_prove: &usize, leaf_to_prove: &[u8;32], leaves_len: usize) -> bool {
-    // putting the index in a vector    
+fn verify_merkle_proof_single_leaf(
+    merkle_proof: &MerkleProof<Sha256Algorithm>,
+    merkle_root: &[u8; 32],
+    index_to_prove: &usize,
+    leaf_to_prove: &[u8; 32],
+    leaves_len: usize,
+) -> bool {
+    // putting the index in a vector
     let mut indices_to_prove: Vec<usize> = Vec::new();
     indices_to_prove.push(*index_to_prove);
     // putting the leaf in correct format
-    let mut leaves_to_prove: Vec<[u8;32]> = Vec::new();
+    let mut leaves_to_prove: Vec<[u8; 32]> = Vec::new();
     leaves_to_prove.push(*leaf_to_prove);
-    let result = merkle_proof.verify(*merkle_root, &indices_to_prove, &leaves_to_prove, leaves_len);
+    let result = merkle_proof.verify(
+        *merkle_root,
+        &indices_to_prove,
+        &leaves_to_prove,
+        leaves_len,
+    );
     // println!("Merkle Proof Result: {}", result);
     result
 }
@@ -276,28 +305,44 @@ fn verify_merkle_proof_single_leaf(merkle_proof: &MerkleProof<Sha256Algorithm>, 
 fn compute_random_index(len_message: usize) -> Vec<usize> {
     let mut rng = rand::thread_rng();
     let mut indices_to_prove: Vec<usize> = Vec::new();
-    let first = rng.gen_range(0..len_message-2);
+    let first = rng.gen_range(0..len_message - 2);
     let second = first + 1;
     indices_to_prove.push(first);
     indices_to_prove.push(second);
     indices_to_prove
 }
 
-fn compute_my_own_root(new_leaf_data: &String, proof_hashes: &[[u8;32]], path: Vec<String>) -> [u8;32] {
+fn compute_my_own_root(
+    new_leaf_data: &String,
+    proof_hashes: &[[u8; 32]],
+    path: Vec<String>,
+) -> [u8; 32] {
+    println!();
+    println!("{}",new_leaf_data);
     let mut let_new_leaf_hash = Sha256Algorithm::hash(new_leaf_data.as_bytes());
+    print_root(let_new_leaf_hash);
 
     for (index, item) in proof_hashes.iter().enumerate() {
+        // print item
+        print_node(*item);
         if path.get(index).unwrap() == "right" {
-            let_new_leaf_hash = Sha256Algorithm::hash(&[let_new_leaf_hash, *item].concat());
-        } else {
+            println!("I am on the right side of the tree");
             let_new_leaf_hash = Sha256Algorithm::hash(&[*item, let_new_leaf_hash].concat());
+            println!("The newly computed node:");
+            print_node(let_new_leaf_hash);
+        } else {
+            println!("I am on the left side of the tree");
+            let_new_leaf_hash = Sha256Algorithm::hash(&[let_new_leaf_hash, *item].concat());
+            println!("The newly computed node:");
+            print_node(let_new_leaf_hash);
         }
     }
+    println!();
 
     let_new_leaf_hash
 }
 
-fn compare_roots(merkle_root: &[u8;32], my_own_root: &[u8;32]) -> bool {
+fn compare_roots(merkle_root: &[u8; 32], my_own_root: &[u8; 32]) -> bool {
     merkle_root == my_own_root
 }
 // ==================== PRINTING FUNCTIONS ====================
@@ -322,15 +367,17 @@ fn print_leaves(leaves: &[<Sha256Algorithm as Hasher>::Hash]) {
     println!();
 }
 
-
+#[allow(dead_code)]
+fn print_node(merkle_root: [u8; 32]) {
+    println!("Node: {:?}", merkle_root);
+}
+// ==================== OTHER HELPERS ===================
 fn path_finder(num_leaves: usize, leaf_num: usize) -> Vec<String> {
     let mut path: Vec<String> = Vec::new();
     let path_len = f64::log2(num_leaves as f64);
 
     let mut root = num_leaves / 2;
     let mut current = leaf_num;
-
-
 
     while path.len() < path_len as usize {
         if current % 2 == 0 {
@@ -342,6 +389,6 @@ fn path_finder(num_leaves: usize, leaf_num: usize) -> Vec<String> {
         }
     }
 
-    path.reverse();
+    // path.reverse();
     path
 }
